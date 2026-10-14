@@ -1,5 +1,6 @@
 # Akuisisi dan validasi data
 requests~=2.32
+PyYAML~=6.0
 pandas~=2.2
 numpy~=2.1
 pandera~=0.22
