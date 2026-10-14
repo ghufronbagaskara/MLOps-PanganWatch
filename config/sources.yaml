@@ -7,13 +7,10 @@ pihps:
   price_type_id: 1          # 1 pasar tradisional, 3 pedagang besar, 4 produsen
   tipe_laporan: 1
   timeout_detik: 90
-  # Jeda dasar antarpermintaan. Nilai acak sampai sebesar jeda_jitter_detik
-  # ditambahkan di atasnya supaya pola permintaan tidak berirama tetap, karena
-  # irama tetap itulah yang membuat lalu lintas terbaca sebagai bot.
+  # Jeda membatasi beban layanan sumber data.
   jeda_antar_permintaan_detik: 4.0
   jeda_jitter_detik: 3.0
-  # Backfill penuh menyentuh 25 pasangan sekaligus. Jalankan sekali saja,
-  # lalu cukup andalkan mode harian yang jauh lebih ringan.
+  # Anggaran seluruh sumber dalam satu eksekusi, termasuk percobaan ulang.
   maks_permintaan_per_eksekusi: 30
 
   kota:

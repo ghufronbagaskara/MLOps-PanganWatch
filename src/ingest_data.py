@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from sources import Konfigurasi, KlienOpenMeteo, KlienPIHPS, SumberDataError
+from sources import KlienOpenMeteo, KlienPIHPS, Konfigurasi, SumberDataError
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "data" / "raw"
@@ -38,21 +38,28 @@ def tarik_harga(
     selesai: date,
     kota_terpilih: list[str] | None = None,
     komoditas_terpilih: list[str] | None = None,
+    anggaran: list[int] | None = None,
 ) -> pd.DataFrame:
-    klien = KlienPIHPS(cfg.pihps)
+    if anggaran is None:
+        anggaran = [cfg.pihps.get("maks_permintaan_per_eksekusi", 30)]
+    klien = KlienPIHPS(cfg.pihps, anggaran)
     baris: list[dict] = []
     gagal = 0
 
-    daftar_kota = [k for k in cfg.pihps["kota"]
-                   if not kota_terpilih or k["nama"] in kota_terpilih]
-    daftar_kom = [k for k in cfg.pihps["komoditas"]
-                  if not komoditas_terpilih or k["nama"] in komoditas_terpilih]
+    daftar_kota = [
+        k for k in cfg.pihps["kota"] if not kota_terpilih or k["nama"] in kota_terpilih
+    ]
+    daftar_kom = [
+        k
+        for k in cfg.pihps["komoditas"]
+        if not komoditas_terpilih or k["nama"] in komoditas_terpilih
+    ]
 
-    anggaran = cfg.pihps.get("maks_permintaan_per_eksekusi", 30)
+    batas_permintaan = anggaran[0]
     rencana = len(daftar_kota) * len(daftar_kom)
-    if rencana > anggaran:
+    if rencana > batas_permintaan:
         raise SystemExit(
-            f"Eksekusi ini akan mengirim {rencana} permintaan, melampaui anggaran {anggaran}. "
+            f"Eksekusi ini akan mengirim {rencana} permintaan, melampaui anggaran {batas_permintaan}. "
             "Persempit dengan --kota atau --komoditas, atau naikkan maks_permintaan_per_eksekusi."
         )
     log.info("Merencanakan %d permintaan ke PIHPS", rencana)
@@ -61,7 +68,11 @@ def tarik_harga(
         for kom in daftar_kom:
             try:
                 deret = klien.ambil(
-                    kom["comcat_id"], kota["province_id"], kota["regency_id"], mulai, selesai
+                    kom["comcat_id"],
+                    kota["province_id"],
+                    kota["regency_id"],
+                    mulai,
+                    selesai,
                 )
             except SumberDataError as exc:
                 # Satu pasangan yang gagal tidak boleh menggugurkan seluruh batch;
@@ -88,8 +99,12 @@ def tarik_harga(
     return pd.DataFrame(baris)
 
 
-def tarik_cuaca(cfg: Konfigurasi, mulai: date, selesai: date) -> pd.DataFrame:
-    klien = KlienOpenMeteo(cfg.open_meteo)
+def tarik_cuaca(
+    cfg: Konfigurasi, mulai: date, selesai: date, anggaran: list[int] | None = None
+) -> pd.DataFrame:
+    if anggaran is None:
+        anggaran = [cfg.pihps.get("maks_permintaan_per_eksekusi", 30)]
+    klien = KlienOpenMeteo(cfg.open_meteo, anggaran)
     variabel = cfg.open_meteo["variabel_harian"]
     baris: list[dict] = []
 
@@ -106,8 +121,12 @@ def tarik_cuaca(cfg: Konfigurasi, mulai: date, selesai: date) -> pd.DataFrame:
             rec.update({v: prakiraan[v][i] for v in variabel})
             baris.append(rec)
 
-        log.info("%-10s %3d hari arsip, %3d hari prakiraan", s["nama"],
-                 len(harian["time"]), len(prakiraan["time"]))
+        log.info(
+            "%-10s %3d hari arsip, %3d hari prakiraan",
+            s["nama"],
+            len(harian["time"]),
+            len(prakiraan["time"]),
+        )
 
     return pd.DataFrame(baris)
 
@@ -115,7 +134,8 @@ def tarik_cuaca(cfg: Konfigurasi, mulai: date, selesai: date) -> pd.DataFrame:
 def simpan(df: pd.DataFrame, prefiks: str) -> Path:
     RAW.mkdir(parents=True, exist_ok=True)
     path = RAW / f"{prefiks}_{stempel()}.csv"
-    df.to_csv(path, index=False)
+    with path.open("x", encoding="utf-8", newline="") as berkas:
+        df.to_csv(berkas, index=False)
     log.info("Tersimpan %s (%d baris)", path.name, len(df))
     return path
 
@@ -129,21 +149,30 @@ def rentang(args: argparse.Namespace, cfg: Konfigurasi) -> tuple[date, date]:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Penarik data harga dan cuaca PanganWatch.")
-    p.add_argument("--backfill", action="store_true",
-                   help="tarik seluruh rentang sejak tanggal_mulai pada konfigurasi")
-    p.add_argument("--hanya", choices=["harga", "cuaca"], help="batasi pada satu sumber saja")
+    p.add_argument(
+        "--backfill",
+        action="store_true",
+        help="tarik seluruh rentang sejak tanggal_mulai pada konfigurasi",
+    )
+    p.add_argument(
+        "--hanya", choices=["harga", "cuaca"], help="batasi pada satu sumber saja"
+    )
     p.add_argument("--kota", nargs="+", help="batasi pada kota tertentu")
     p.add_argument("--komoditas", nargs="+", help="batasi pada komoditas tertentu")
     args = p.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s",
-                        datefmt="%H:%M:%S")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(message)s",
+        datefmt="%H:%M:%S",
+    )
     cfg = Konfigurasi.muat()
+    anggaran = [cfg.pihps.get("maks_permintaan_per_eksekusi", 30)]
     mulai, selesai = rentang(args, cfg)
     log.info("Rentang penarikan %s sampai %s", mulai, selesai)
 
     if args.hanya != "cuaca":
-        harga = tarik_harga(cfg, mulai, selesai, args.kota, args.komoditas)
+        harga = tarik_harga(cfg, mulai, selesai, args.kota, args.komoditas, anggaran)
         if harga.empty:
             log.error("Tidak ada satu pun baris harga yang berhasil ditarik")
             return 1
@@ -152,7 +181,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.hanya != "harga":
         # Arsip ERA5 terbit tertinggal beberapa hari, jadi ujung rentangnya dimundurkan.
         batas = selesai - timedelta(days=cfg.open_meteo["jeda_arsip_hari"])
-        simpan(tarik_cuaca(cfg, mulai, batas), "cuaca_openmeteo")
+        mulai_arsip = (
+            mulai
+            if args.backfill
+            else batas - timedelta(days=cfg.backfill["jendela_harian_hari"])
+        )
+        simpan(tarik_cuaca(cfg, mulai_arsip, batas, anggaran), "cuaca_openmeteo")
 
     return 0
 
