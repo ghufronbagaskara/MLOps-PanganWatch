@@ -1,9 +1,6 @@
 # PanganWatch
 
-Sistem peringatan dini lonjakan harga pangan berbasis *continual learning*. Proyek ini meramalkan
-harga eceran harian lima komoditas pangan strategis pada lima kota untuk horizon satu sampai tujuh
-hari ke depan, kemudian menerjemahkan hasil ramalan tersebut menjadi level peringatan bagi
-pengambil keputusan pengadaan.
+Sistem peringatan dini lonjakan harga pangan berbasis *continual learning*. Proyek ini dirancang untuk meramalkan harga eceran lima komoditas pada lima kota dan menghasilkan peringatan bagi pengambil keputusan pengadaan. Implementasi sampai LK-06 berupa pipeline harga, versioning DVC, serta tiga eksperimen LightGBM untuk horizon tujuh observasi hari kerja. Sistem peringatan produksi dan integrasi fitur cuaca belum diterapkan.
 
 Repositori ini merupakan artefak mata kuliah Machine Learning Operations (CIF60050), Program Studi
 S1 Teknik Informatika, Fakultas Ilmu Komputer, Universitas Brawijaya. Isinya bertambah secara
@@ -27,8 +24,7 @@ degradasi performa, deteksi *drift*, dan penanda kalender.
 | PIHPS Bank Indonesia | Variabel target dan fitur *lag* | Endpoint JSON `GetGridDataDaerah`, tanpa kunci | Hari kerja |
 | Open-Meteo | Variabel eksogen cuaca sentra produksi | REST API terbuka, tanpa kunci | Arsip harian dan prakiraan 16 hari |
 
-Keduanya dapat diakses tanpa biaya. Open-Meteo membatasi pemakaian gratis pada 10.000 panggilan per
-hari, sedangkan kebutuhan harian sistem ini 16 panggilan.
+Pengambilan harga lengkap memerlukan 25 permintaan dan cuaca 10 permintaan sebelum retry. Batas eksekusi saat ini 30 permintaan untuk semua sumber dan retry; gunakan `--hanya harga` atau `--hanya cuaca` secara terpisah. Respons 403/429 dan CAPTCHA menghentikan proses. Jangan menjalankan ulang backfill untuk memeriksa tugas; gunakan arsip lokal.
 
 ## Struktur Direktori
 
@@ -50,7 +46,9 @@ MLOps-PanganWatch/
 ├── models/                   artefak model terlatih
 ├── notebooks/                eksplorasi dan analisis data
 ├── src/
-│   └── panganwatch/          paket Python utama
+│   ├── ingest_data.py        penarikan snapshot
+│   ├── preprocess.py         validasi tabel harga
+│   └── sources.py            klien sumber data
 ├── tests/                    pengujian otomatis
 ├── .gitignore
 ├── LICENSE
@@ -58,19 +56,15 @@ MLOps-PanganWatch/
 └── requirements.txt
 ```
 
-Folder `data/` dan `models/` sengaja tidak dilacak Git. Git tidak dirancang untuk menyimpan berkas
-biner berukuran besar, dan setiap tarikan harian akan menambah riwayat yang tidak perlu. Kedua
-folder tersebut akan dilacak menggunakan DVC pada tahap berikutnya, sehingga Git hanya menyimpan
-berkas penunjuk berukuran kecil.
+Isi dataset pada `data/raw/` dan `data/processed/` dilacak DVC. Artefak model dicatat MLflow. Git tidak dirancang untuk menyimpan berkas
+biner berukuran besar, dan setiap tarikan harian akan menambah riwayat yang tidak perlu. Git menyimpan penunjuk `data/raw.dvc` dan `data/processed.dvc`, sedangkan byte dataset berada pada cache DVC dan penyimpanan data.
 
 ## Menjalankan Lingkungan Pengembangan
 
 ### GitHub Codespaces
 
 Lingkungan pengembangan proyek ini didefinisikan sebagai kode pada
-[`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json). Siapa pun yang membuka
-repositori ini akan memperoleh lingkungan yang identik, sehingga persoalan klasik *works on my
-machine* tidak muncul.
+[`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json). Definisi ini menyamakan lingkungan dasar dan daftar dependensi. Reproduksi identik tetap membutuhkan versi data dan versi pustaka yang sama.
 
 1. Buka halaman repositori di GitHub.
 2. Tekan tombol **Code**, pilih tab **Codespaces**, lalu **Create codespace on main**.
@@ -93,7 +87,7 @@ diteruskan untuk antarmuka MLflow dan layanan API inferensi.
 git clone https://github.com/ghufronbagaskara/MLOps-PanganWatch.git
 cd MLOps-PanganWatch
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -103,7 +97,7 @@ pip install -r requirements.txt
 
 ```bash
 python src/ingest_data.py --backfill        # tarikan awal sejak September 2024
-python src/ingest_data.py                   # tarikan harian berjalan
+python src/ingest_data.py --hanya harga     # pembaruan harga jika akses diizinkan
 python src/ingest_data.py --hanya cuaca     # batasi pada satu sumber
 ```
 
@@ -162,10 +156,10 @@ request* digabungkan.
 | --- | --- | --- |
 | LK-01 | Inisiasi proyek, strategi *continual learning*, kriteria keberhasilan | Selesai |
 | LK-02 | Repositori, Codespaces, struktur direktori, GitHub Flow | Selesai |
-| LK-03 | Perancangan arsitektur pipeline data | Belum |
-| LK-04 | Implementasi *data ingestion* dan prapemrosesan | Belum |
-| LK-05 | Versioning dataset menggunakan DVC | Belum |
-| LK-06 | Manajemen eksperimen menggunakan MLflow | Belum |
+| LK-03 | Perancangan arsitektur pipeline data | Laporan lokal selesai |
+| LK-04 | Implementasi *data ingestion* dan prapemrosesan | Kode, data, dan laporan lokal selesai |
+| LK-05 | Versioning dataset menggunakan DVC | Dua versi dan laporan lokal selesai |
+| LK-06 | Manajemen eksperimen menggunakan MLflow | Tiga run, registry kandidat, dan laporan lokal selesai |
 
 ## Lisensi
 
@@ -173,3 +167,54 @@ Berlisensi MIT. Rincian pada berkas [LICENSE](LICENSE).
 
 Data harga berasal dari Pusat Informasi Harga Pangan Strategis Bank Indonesia. Data cuaca berasal
 dari Open-Meteo dan tunduk pada lisensi Creative Commons Attribution 4.0 International.
+
+
+## Versioning Dataset dengan DVC
+
+Dataset hasil LK-04 dilacak melalui `data/raw.dvc` dan `data/processed.dvc`.
+Commit `67a4f8d` mencatat versi pertama, sedangkan `a948b7f` menambahkan snapshot harga tiga baris.
+Jumlah raw berubah dari dua menjadi tiga berkas. Tiga kunci sudah ada dalam arsip sehingga jumlah
+observasi unik olahan tetap 13.825; perubahan waktu pengambilan tidak sama dengan harga baru.
+
+```powershell
+python -m dvc status
+python -m dvc diff 67a4f8d a948b7f
+```
+
+Untuk snapshot baru yang sudah diperiksa, jalankan prapemrosesan lalu `python -m dvc add data/raw data/processed`.
+Simpan penunjuk `.dvc` bersama versi kode setelah validasi. `dvc diff` membandingkan metadata berkas,
+sehingga perubahan isi tabel perlu diperiksa terpisah. Jangan ulangi ingesti hanya untuk memeriksa tugas.
+
+Remote `lokal` menunjuk penyimpanan lokal dan tidak tersedia otomatis di Codespaces lain.
+Paket LK-05 menyertakan data, cache, dan Git bundle untuk reproduksi tanpa akses sumber data.
+
+## Eksperimen dan Model Registry LK-06
+
+`src/train.py` membentuk fitur per kota dan komoditas dari dataset harga LK-05.
+Horizon 7 berarti tujuh observasi hari kerja. Tanggal target latih harus tidak melewati
+batas periode latih; baris yang labelnya masuk periode uji dikeluarkan.
+Parameter, metrik, hash dataset/kode, batas waktu, dan artefak model dicatat melalui MLflow.
+Cuaca belum menjadi fitur. Evaluasi historis memakai snapshot terbaru dan belum membuktikan
+semua revisi harga tersedia pada tanggal prediksi aslinya.
+
+```powershell
+python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_baseline --n-estimators 300 --learning-rate 0.05 --num-leaves 31
+python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_dangkal_teregul --n-estimators 150 --learning-rate 0.03 --max-depth 4 --num-leaves 15
+python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_dalam_agresif --n-estimators 800 --learning-rate 0.1 --num-leaves 63
+python -m mlflow ui --backend-store-uri ./mlruns --host 127.0.0.1 --port 5000
+```
+
+Tiga run terverifikasi tersimpan pada eksperimen `panganwatch-lk06-terverifikasi`.
+Konfigurasi dangkal memiliki MAPE 5,7548 persen dan RMSE Rp5.403,15,
+sedangkan naive memiliki MAPE 5,3746 persen dan RMSE Rp5.214,42.
+Model terbaik di antara tiga LightGBM terdaftar sebagai `PanganWatch-Harga-Kandidat`, versi 1,
+stage None. Kandidat belum mengungguli naive dan tidak dipromosikan ke produksi.
+Pemilihan pada jendela uji yang sama bersifat eksploratif; evaluasi berikutnya membutuhkan
+periode terpisah. Model tersimpan berhasil dimuat ulang dengan 1.050 prediksi identik.
+
+## Pemeriksaan Paket Lokal
+
+Seluruh 20 pengujian ingesti, prapemrosesan, dan pelatihan lulus. Kompilasi sintaks dan
+`git diff --check` lulus. Ruff 0.17.0 sudah dijalankan; lint dan pemeriksaan format lulus.
+Tidak ada permintaan baru ke PIHPS atau Open-Meteo pada penyelesaian LK-03 sampai LK-06.
+Perubahan sesi ini masih lokal dan belum di-commit/push.
