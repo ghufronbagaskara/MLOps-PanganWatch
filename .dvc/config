@@ -1,0 +1,4 @@
+[core]
+    remote = lokal
+['remote "lokal"']
+    url = ../../.dvc-storage
