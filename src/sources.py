@@ -8,6 +8,7 @@ jaringan tidak tercampur dengan kegagalan transformasi.
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass
 from datetime import date
@@ -133,7 +134,14 @@ class KlienPIHPS:
         return {k: str(v) for k, v in baris[0].items() if "/" in k}
 
     def jeda(self) -> None:
-        time.sleep(self.cfg["jeda_antar_permintaan_detik"])
+        """Tunggu sebelum permintaan berikutnya, dengan jitter.
+
+        Jeda berirama tetap adalah ciri lalu lintas otomatis yang paling mudah
+        dikenali penapis sisi server, jadi durasinya diacak.
+        """
+        dasar = self.cfg["jeda_antar_permintaan_detik"]
+        jitter = self.cfg.get("jeda_jitter_detik", 0.0)
+        time.sleep(dasar + random.uniform(0, jitter))
 
 
 class KlienOpenMeteo:

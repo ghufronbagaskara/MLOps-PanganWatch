@@ -32,13 +32,33 @@ def stempel() -> str:
     return datetime.now().strftime("%Y%m%dT%H%M%S")
 
 
-def tarik_harga(cfg: Konfigurasi, mulai: date, selesai: date) -> pd.DataFrame:
+def tarik_harga(
+    cfg: Konfigurasi,
+    mulai: date,
+    selesai: date,
+    kota_terpilih: list[str] | None = None,
+    komoditas_terpilih: list[str] | None = None,
+) -> pd.DataFrame:
     klien = KlienPIHPS(cfg.pihps)
     baris: list[dict] = []
     gagal = 0
 
-    for kota in cfg.pihps["kota"]:
-        for kom in cfg.pihps["komoditas"]:
+    daftar_kota = [k for k in cfg.pihps["kota"]
+                   if not kota_terpilih or k["nama"] in kota_terpilih]
+    daftar_kom = [k for k in cfg.pihps["komoditas"]
+                  if not komoditas_terpilih or k["nama"] in komoditas_terpilih]
+
+    anggaran = cfg.pihps.get("maks_permintaan_per_eksekusi", 30)
+    rencana = len(daftar_kota) * len(daftar_kom)
+    if rencana > anggaran:
+        raise SystemExit(
+            f"Eksekusi ini akan mengirim {rencana} permintaan, melampaui anggaran {anggaran}. "
+            "Persempit dengan --kota atau --komoditas, atau naikkan maks_permintaan_per_eksekusi."
+        )
+    log.info("Merencanakan %d permintaan ke PIHPS", rencana)
+
+    for kota in daftar_kota:
+        for kom in daftar_kom:
             try:
                 deret = klien.ambil(
                     kom["comcat_id"], kota["province_id"], kota["regency_id"], mulai, selesai
@@ -112,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--backfill", action="store_true",
                    help="tarik seluruh rentang sejak tanggal_mulai pada konfigurasi")
     p.add_argument("--hanya", choices=["harga", "cuaca"], help="batasi pada satu sumber saja")
+    p.add_argument("--kota", nargs="+", help="batasi pada kota tertentu")
+    p.add_argument("--komoditas", nargs="+", help="batasi pada komoditas tertentu")
     args = p.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s",
@@ -121,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Rentang penarikan %s sampai %s", mulai, selesai)
 
     if args.hanya != "cuaca":
-        harga = tarik_harga(cfg, mulai, selesai)
+        harga = tarik_harga(cfg, mulai, selesai, args.kota, args.komoditas)
         if harga.empty:
             log.error("Tidak ada satu pun baris harga yang berhasil ditarik")
             return 1
