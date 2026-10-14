@@ -1,0 +1,36 @@
+{
+  "name": "PanganWatch MLOps",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter",
+        "charliermarsh.ruff",
+        "eamodio.gitlens",
+        "Iterative.dvc"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "editor.rulers": [100],
+        "files.trimTrailingWhitespace": true
+      }
+    }
+  },
+  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt",
+  "forwardPorts": [5000, 8000],
+  "portsAttributes": {
+    "5000": { "label": "MLflow Tracking UI" },
+    "8000": { "label": "API inferensi" }
+  },
+  "remoteEnv": {
+    "PYTHONPATH": "${containerWorkspaceFolder}/src",
+    "TZ": "Asia/Jakarta"
+  }
+}
