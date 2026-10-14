@@ -1,0 +1,50 @@
+# Konfigurasi sumber data PanganWatch.
+# Nilai id pada blok pihps diambil dari endpoint referensi GetRefProvince,
+# GetRefRegency, dan GetRefCommodityAndCategory.
+
+pihps:
+  base_url: https://www.bi.go.id/hargapangan/WebSite/TabelHarga
+  price_type_id: 1          # 1 pasar tradisional, 3 pedagang besar, 4 produsen
+  tipe_laporan: 1
+  timeout_detik: 90
+  jeda_antar_permintaan_detik: 1.5
+
+  kota:
+    - { nama: Malang,        province_id: 16, regency_id: 43 }
+    - { nama: Surabaya,      province_id: 16, regency_id: 42 }
+    - { nama: Jakarta Pusat, province_id: 13, regency_id: 34 }
+    - { nama: Bandung,       province_id: 12, regency_id: 27 }
+    - { nama: Medan,         province_id: 2,  regency_id: 4 }
+
+  komoditas:
+    - { nama: Cabai Rawit Merah,    comcat_id: com_16 }
+    - { nama: Cabai Merah Keriting, comcat_id: com_14 }
+    - { nama: Bawang Merah,         comcat_id: com_11 }
+    - { nama: Telur Ayam Ras,       comcat_id: com_10 }
+    - { nama: Beras Medium,         comcat_id: com_3 }
+
+open_meteo:
+  archive_url: https://archive-api.open-meteo.com/v1/archive
+  forecast_url: https://api.open-meteo.com/v1/forecast
+  timezone: Asia/Jakarta
+  variabel_harian:
+    - precipitation_sum
+    - temperature_2m_max
+    - temperature_2m_min
+    - relative_humidity_2m_mean
+  # Arsip ERA5 terbit dengan jeda sekitar lima hari.
+  jeda_arsip_hari: 5
+
+  # Koordinat sentra produksi, bukan kota konsumsi. Hujan di kota tujuan tidak
+  # menggerakkan harga; panen di sentra pemasoknya yang menggerakkan.
+  sentra:
+    - { nama: Kediri,  lat: -7.8480, lon: 112.0178, memasok: [Malang, Surabaya] }
+    - { nama: Blitar,  lat: -8.0955, lon: 112.1609, memasok: [Malang, Surabaya] }
+    - { nama: Garut,   lat: -7.2145, lon: 107.9026, memasok: [Bandung, Jakarta Pusat] }
+    - { nama: Brebes,  lat: -6.8722, lon: 109.0409, memasok: [Jakarta Pusat, Bandung] }
+    - { nama: Nganjuk, lat: -7.6050, lon: 111.9030, memasok: [Surabaya, Malang] }
+
+backfill:
+  tanggal_mulai: 2024-09-01
+  # Jendela tumpang tindih tiga hari agar revisi harga yang terbit belakangan ikut tertangkap.
+  jendela_harian_hari: 3
