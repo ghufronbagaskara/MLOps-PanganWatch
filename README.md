@@ -97,6 +97,48 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Menjalankan Pipeline Data
+
+### Penarikan Data
+
+```bash
+python src/ingest_data.py --backfill        # tarikan awal sejak September 2024
+python src/ingest_data.py                   # tarikan harian berjalan
+python src/ingest_data.py --hanya cuaca     # batasi pada satu sumber
+```
+
+Setiap eksekusi menulis berkas baru bernama `<sumber>_<stempel waktu>.csv` ke `data/raw/`, misalnya
+`harga_pihps_20261014T132540.csv`. Berkas lama tidak pernah tertimpa, sehingga dua tarikan yang
+berurutan dapat dibandingkan dan revisi harga yang terbit belakangan tetap terekam.
+
+Mode harian menarik jendela tiga hari ke belakang, bukan hanya hari berjalan. PIHPS masih mengoreksi
+entri survei satu hari setelah tanggal pengukuran, dan jendela tumpang tindih tersebut memastikan
+koreksi itu ikut tertangkap. Kegagalan pada satu pasangan komoditas dan kota dicatat sebagai
+peringatan, tidak menggugurkan seluruh batch, karena tarikan berikutnya akan menambalnya.
+
+### Prapemrosesan
+
+```bash
+python src/preprocess.py
+```
+
+Skrip tersebut membaca seluruh berkas pada `data/raw/`, lalu mengerjakan empat hal. Pertama,
+membongkar bentuk pivot PIHPS yang menempatkan tanggal sebagai kolom menjadi tabel panjang dengan
+satu baris per kombinasi tanggal, kota, dan komoditas. Kedua, mengurai angka harga yang ditulis
+sebagai teks bertanda pemisah ribuan serta membuang sel kosong. Ketiga, menyelesaikan duplikasi
+akibat jendela tumpang tindih dengan memenangkan nilai dari tarikan terbaru. Keempat, mengisi hari
+kerja yang kosong secara maju dan menandainya pada kolom `is_imputed` agar model dapat membedakan
+harga hasil observasi dari harga hasil pengisian.
+
+Hasilnya divalidasi dengan skema Pandera sebelum ditulis ke `data/processed/harga_harian.parquet`.
+Batch yang melanggar skema ditolak, sehingga data yang cacat tidak pernah sampai ke tahap pelatihan.
+
+### Pengujian
+
+```bash
+python -m pytest tests -q
+```
+
 ## Strategi Percabangan
 
 Proyek ini menerapkan GitHub Flow. Branch `main` dijaga selalu berada pada kondisi yang dapat
