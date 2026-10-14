@@ -24,6 +24,10 @@ CONFIG_PATH = ROOT / "config" / "sources.yaml"
 log = logging.getLogger(__name__)
 
 
+class AksesDihentikan(RuntimeError):
+    """Akses dibatasi atau anggaran habis; eksekusi wajib berhenti."""
+
+
 class SumberDataError(RuntimeError):
     """Permintaan ke sumber data gagal setelah seluruh percobaan ulang habis."""
 
@@ -35,10 +39,12 @@ class Konfigurasi:
     backfill: dict[str, Any]
 
     @classmethod
-    def muat(cls, path: Path = CONFIG_PATH) -> "Konfigurasi":
+    def muat(cls, path: Path = CONFIG_PATH) -> Konfigurasi:
         with path.open(encoding="utf-8") as f:
             raw = yaml.safe_load(f)
-        return cls(pihps=raw["pihps"], open_meteo=raw["open_meteo"], backfill=raw["backfill"])
+        return cls(
+            pihps=raw["pihps"], open_meteo=raw["open_meteo"], backfill=raw["backfill"]
+        )
 
 
 def _sesi(user_agent: str) -> requests.Session:
@@ -54,6 +60,7 @@ def _ambil_json(
     timeout: int,
     percobaan: int = 3,
     jeda_awal: float = 2.0,
+    anggaran: list[int] | None = None,
 ) -> Any:
     """GET dengan backoff eksponensial.
 
@@ -62,17 +69,45 @@ def _ambil_json(
     """
     galat_terakhir: Exception | None = None
     for percobaan_ke in range(percobaan):
+        if anggaran is not None:
+            if anggaran[0] <= 0:
+                raise AksesDihentikan(
+                    "Anggaran permintaan habis, termasuk percobaan ulang."
+                )
+            anggaran[0] -= 1
         try:
             r = sesi.get(url, params=params, timeout=timeout)
+            if r.status_code in (403, 429):
+                raise AksesDihentikan(
+                    f"HTTP {r.status_code}; hentikan akses sumber data."
+                )
+            if "text/html" in r.headers.get("Content-Type", "").lower():
+                halaman = r.text.lower()
+                if any(
+                    tanda in halaman
+                    for tanda in (
+                        "captcha",
+                        "cf-chl-",
+                        "verify you are human",
+                        "access denied",
+                    )
+                ):
+                    raise AksesDihentikan(
+                        "Tantangan akses terdeteksi; perlu pemeriksaan manual."
+                    )
             r.raise_for_status()
             return r.json()
         except (requests.RequestException, ValueError) as exc:
             galat_terakhir = exc
             if percobaan_ke < percobaan - 1:
                 jeda = jeda_awal * (2**percobaan_ke)
-                log.warning("Permintaan gagal (%s), mencoba lagi dalam %.0f detik", exc, jeda)
+                log.warning(
+                    "Permintaan gagal (%s), mencoba lagi dalam %.0f detik", exc, jeda
+                )
                 time.sleep(jeda)
-    raise SumberDataError(f"Gagal mengambil {url}: {galat_terakhir}") from galat_terakhir
+    raise SumberDataError(
+        f"Gagal mengambil {url}: {galat_terakhir}"
+    ) from galat_terakhir
 
 
 class KlienPIHPS:
@@ -85,8 +120,9 @@ class KlienPIHPS:
 
     USER_AGENT = "PanganWatch/1.0 (proyek akademik MLOps; kontak via repositori GitHub)"
 
-    def __init__(self, cfg: dict[str, Any]) -> None:
+    def __init__(self, cfg: dict[str, Any], anggaran: list[int] | None = None) -> None:
         self.cfg = cfg
+        self.anggaran = anggaran
         self.sesi = _sesi(self.USER_AGENT)
         self.sesi.headers.update(
             {
@@ -127,6 +163,7 @@ class KlienPIHPS:
             f"{self.cfg['base_url']}/GetGridDataDaerah",
             params,
             timeout=self.cfg["timeout_detik"],
+            anggaran=self.anggaran,
         )
         baris = [b for b in data.get("data", []) if b.get("level") == 2]
         if not baris:
@@ -134,11 +171,7 @@ class KlienPIHPS:
         return {k: str(v) for k, v in baris[0].items() if "/" in k}
 
     def jeda(self) -> None:
-        """Tunggu sebelum permintaan berikutnya, dengan jitter.
-
-        Jeda berirama tetap adalah ciri lalu lintas otomatis yang paling mudah
-        dikenali penapis sisi server, jadi durasinya diacak.
-        """
+        """Beri jeda untuk membatasi beban pada sumber data."""
         dasar = self.cfg["jeda_antar_permintaan_detik"]
         jitter = self.cfg.get("jeda_jitter_detik", 0.0)
         time.sleep(dasar + random.uniform(0, jitter))
@@ -147,11 +180,14 @@ class KlienPIHPS:
 class KlienOpenMeteo:
     USER_AGENT = "PanganWatch/1.0 (proyek akademik MLOps)"
 
-    def __init__(self, cfg: dict[str, Any]) -> None:
+    def __init__(self, cfg: dict[str, Any], anggaran: list[int] | None = None) -> None:
         self.cfg = cfg
+        self.anggaran = anggaran
         self.sesi = _sesi(self.USER_AGENT)
 
-    def arsip(self, lat: float, lon: float, mulai: date, selesai: date) -> dict[str, list]:
+    def arsip(
+        self, lat: float, lon: float, mulai: date, selesai: date
+    ) -> dict[str, list]:
         data = _ambil_json(
             self.sesi,
             self.cfg["archive_url"],
@@ -164,6 +200,7 @@ class KlienOpenMeteo:
                 "timezone": self.cfg["timezone"],
             },
             timeout=60,
+            anggaran=self.anggaran,
         )
         return data["daily"]
 
@@ -179,5 +216,6 @@ class KlienOpenMeteo:
                 "timezone": self.cfg["timezone"],
             },
             timeout=60,
+            anggaran=self.anggaran,
         )
         return data["daily"]

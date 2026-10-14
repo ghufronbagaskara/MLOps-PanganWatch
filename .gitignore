@@ -27,14 +27,19 @@ htmlcov/
 Thumbs.db
 *.swp
 
-# Artefak data dan model dilacak DVC, bukan Git.
-/data/raw/*
-/data/interim/*
-/data/processed/*
-/models/*
-!**/.gitkeep
-!**/*.dvc
+# Isi data/ dan models/ dilacak DVC. Berkas .gitignore di dalam kedua folder
+# tersebut ditulis DVC sendiri, jadi tidak perlu diatur dari sini.
 
 # MLflow menulis ke sini saat tracking backend lokal.
 mlruns/
 mlartifacts/
+
+# Penyimpanan DVC lokal di luar repositori kerja.
+/.dvc-storage/
+
+/mlflow.db
+
+/models/registry.db
+
+# Ringkasan metrik run terakhir, ditimpa tiap pelatihan.
+/models/metrik_terakhir.json

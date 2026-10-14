@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from preprocess import bersihkan, lengkapi_hari_kerja, stempel_dari_nama  # noqa: E402
+from preprocess import bersihkan, lengkapi_hari_kerja, stempel_dari_nama
 
 
 def _mentah(rows: list[tuple[str, str, str, str, str]]) -> pd.DataFrame:

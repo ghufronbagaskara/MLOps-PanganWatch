@@ -34,7 +34,9 @@ SKEMA = DataFrameSchema(
         "tanggal": Column("datetime64[ns]", nullable=False),
         "kota": Column(str, nullable=False),
         "komoditas": Column(str, nullable=False),
-        "harga": Column(float, pa.Check.in_range(HARGA_MIN, HARGA_MAKS), nullable=False),
+        "harga": Column(
+            float, pa.Check.in_range(HARGA_MIN, HARGA_MAKS), nullable=False
+        ),
         "is_imputed": Column(bool, nullable=False),
         "ditarik_pada": Column("datetime64[ns]", nullable=False),
     },
@@ -53,7 +55,9 @@ def stempel_dari_nama(path: Path) -> pd.Timestamp:
 def baca_harga_mentah() -> pd.DataFrame:
     berkas = sorted(RAW.glob("harga_pihps_*.csv"))
     if not berkas:
-        raise FileNotFoundError(f"Tidak ada berkas harga di {RAW}. Jalankan ingest_data.py dahulu.")
+        raise FileNotFoundError(
+            f"Tidak ada berkas harga di {RAW}. Jalankan ingest_data.py dahulu."
+        )
 
     bagian = []
     for p in berkas:
@@ -72,7 +76,9 @@ def bersihkan(df: pd.DataFrame) -> pd.DataFrame:
     # pada halaman lain, sementara sel kosong ditulis sebagai tanda hubung.
     teks = df["harga_mentah"].astype(str).str.strip()
     teks = teks.replace({"-": None, "": None, "nan": None, "None": None})
-    df["harga"] = pd.to_numeric(teks.str.replace(r"[.,]", "", regex=True), errors="coerce")
+    df["harga"] = pd.to_numeric(
+        teks.str.replace(r"[.,]", "", regex=True), errors="coerce"
+    )
 
     sebelum = len(df)
     df = df.dropna(subset=["tanggal", "harga"])
@@ -80,7 +86,9 @@ def bersihkan(df: pd.DataFrame) -> pd.DataFrame:
 
     di_luar = ~df["harga"].between(HARGA_MIN, HARGA_MAKS)
     if di_luar.any():
-        log.warning("Membuang %d baris dengan harga di luar rentang wajar", int(di_luar.sum()))
+        log.warning(
+            "Membuang %d baris dengan harga di luar rentang wajar", int(di_luar.sum())
+        )
         df = df[~di_luar]
 
     # Revisi harga membuat satu kunci muncul berkali-kali; tarikan terbaru menang.
@@ -112,12 +120,17 @@ def lengkapi_hari_kerja(df: pd.DataFrame) -> pd.DataFrame:
 
     gabungan = pd.concat(hasil, ignore_index=True)
     gabungan["harga"] = gabungan["harga"].astype(float)
-    return gabungan[["tanggal", "kota", "komoditas", "harga", "is_imputed", "ditarik_pada"]]
+    return gabungan[
+        ["tanggal", "kota", "komoditas", "harga", "is_imputed", "ditarik_pada"]
+    ]
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s",
-                        datefmt="%H:%M:%S")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     df = lengkapi_hari_kerja(bersihkan(baca_harga_mentah()))
     SKEMA.validate(df, lazy=True)
@@ -128,11 +141,19 @@ def main() -> int:
 
     terisi = int((~df["is_imputed"]).sum())
     log.info("Tersimpan %s", keluaran.name)
-    log.info("%d baris, %d deret, %s sampai %s",
-             len(df), df.groupby(["kota", "komoditas"]).ngroups,
-             df["tanggal"].min().date(), df["tanggal"].max().date())
-    log.info("Hasil observasi %d baris, hasil pengisian %d baris (%.1f persen)",
-             terisi, len(df) - terisi, (len(df) - terisi) / len(df) * 100)
+    log.info(
+        "%d baris, %d deret, %s sampai %s",
+        len(df),
+        df.groupby(["kota", "komoditas"]).ngroups,
+        df["tanggal"].min().date(),
+        df["tanggal"].max().date(),
+    )
+    log.info(
+        "Hasil observasi %d baris, hasil pengisian %d baris (%.1f persen)",
+        terisi,
+        len(df) - terisi,
+        (len(df) - terisi) / len(df) * 100,
+    )
     return 0
 
 
