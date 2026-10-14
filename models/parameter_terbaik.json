@@ -1,0 +1,55 @@
+{
+  "experiment": "panganwatch-lk06-terverifikasi",
+  "experiment_id": "340123454314106953",
+  "run_id": "7452dabdbaf24ce2ba4f4abbc923db50",
+  "run_name": "lk06_dangkal_teregul",
+  "model_uri": "runs:/7452dabdbaf24ce2ba4f4abbc923db50/model",
+  "dataset_path": "data/processed/harga_harian.parquet",
+  "data_sha256": "8660857b4cc6e25679b07560d7a15818c724845915cc0382647cfa5c6ad73494",
+  "source_sha256": "d3740dd7c5970d45ae49692155642435f694fde1f3154bdc4e92991dfccdd38a",
+  "git_commit": "a948b7fe89c9acc89391e6a45de0a2cc0edd11df",
+  "git_dirty": true,
+  "parameters": {
+    "horizon": 7,
+    "horizon_unit": "observasi_hari_kerja",
+    "uji_hari": 60,
+    "n_estimators": 150,
+    "learning_rate": 0.03,
+    "max_depth": 4,
+    "num_leaves": 15,
+    "random_state": 42
+  },
+  "split": {
+    "train_rows": 11675,
+    "test_rows": 1050,
+    "cutoff": "2026-08-06",
+    "max_train_target_date": "2026-08-06",
+    "min_test_origin_date": "2026-08-07",
+    "max_test_target_date": "2026-10-14"
+  },
+  "metrics": {
+    "mae": 3066.294318428,
+    "rmse": 5403.1548854437,
+    "mape_percent": 5.7547634338,
+    "direction_accuracy_percent": 50.4120879121,
+    "skill_score_vs_naive": -0.0361943408
+  },
+  "naive": {
+    "rmse": 5214.4223074086,
+    "mape_percent": 5.3745526354
+  },
+  "selection_reason": "MAPE dan RMSE terendah di antara tiga konfigurasi LightGBM pada data uji yang sama.",
+  "status": "kandidat_eksperimen_belum_produksi",
+  "limitation": "Seluruh LightGBM masih kalah dari naive. Pemilihan konfigurasi pada jendela uji yang sama bersifat eksploratif; evaluasi produksi memerlukan data waktu terpisah.",
+  "registry": {
+    "model_name": "PanganWatch-Harga-Kandidat",
+    "version": "1",
+    "stage": "None",
+    "registry_uri": "file:///D:/kowlej/%3D%3D%3D%3D%202.%20MLOps/MLOps-PanganWatch/mlruns",
+    "model_uri": "models:/PanganWatch-Harga-Kandidat/1",
+    "promoted_to_production": false
+  },
+  "current_source_sha256": "8f77f1aa4cbed36fb8c02c3dee8b4b9f0d76f9ced0b34a70c92b3887b5038b2f",
+  "executed_source_archive": "lampiran/train-executed.py",
+  "formatting_ast_unchanged": true
+}
