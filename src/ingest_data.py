@@ -144,6 +144,9 @@ def rentang(args: argparse.Namespace, cfg: Konfigurasi) -> tuple[date, date]:
     hari_ini = date.today()
     if args.backfill:
         return date.fromisoformat(str(cfg.backfill["tanggal_mulai"])), hari_ini
+    # Mengejar hari yang terlewat ketika eksekusi terjadwal sempat tidak berjalan.
+    if args.sejak:
+        return args.sejak, hari_ini
     return hari_ini - timedelta(days=cfg.backfill["jendela_harian_hari"]), hari_ini
 
 
@@ -159,7 +162,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("--kota", nargs="+", help="batasi pada kota tertentu")
     p.add_argument("--komoditas", nargs="+", help="batasi pada komoditas tertentu")
+    p.add_argument(
+        "--sejak",
+        type=date.fromisoformat,
+        help="tanggal awal YYYY-MM-DD untuk mengejar hari yang terlewat",
+    )
     args = p.parse_args(argv)
+    if args.backfill and args.sejak:
+        p.error("--backfill dan --sejak tidak dapat dipakai bersamaan")
 
     logging.basicConfig(
         level=logging.INFO,
