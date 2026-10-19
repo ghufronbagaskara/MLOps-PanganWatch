@@ -24,7 +24,11 @@ degradasi performa, deteksi *drift*, dan penanda kalender.
 | PIHPS Bank Indonesia | Variabel target dan fitur *lag* | Endpoint JSON `GetGridDataDaerah`, tanpa kunci | Hari kerja |
 | Open-Meteo | Variabel eksogen cuaca sentra produksi | REST API terbuka, tanpa kunci | Arsip harian dan prakiraan 16 hari |
 
-Pengambilan harga lengkap memerlukan 25 permintaan dan cuaca 10 permintaan sebelum retry. Batas eksekusi saat ini 30 permintaan untuk semua sumber dan retry; gunakan `--hanya harga` atau `--hanya cuaca` secara terpisah. Respons 403/429 dan CAPTCHA menghentikan proses. Jangan menjalankan ulang backfill untuk memeriksa tugas; gunakan arsip lokal.
+Keduanya dapat diakses tanpa biaya. Pengambilan harga lengkap memerlukan 25 permintaan dan cuaca
+10 permintaan, sedangkan satu eksekusi dibatasi 30 permintaan termasuk percobaan ulang. Oleh karena
+itu, kedua sumber dijalankan terpisah melalui `--hanya harga` dan `--hanya cuaca`. Respons 403, 429,
+atau halaman CAPTCHA langsung menghentikan proses agar layanan sumber tidak terus dibebani. Backfill
+cukup dijalankan sekali; pembaruan berikutnya memakai mode harian yang jauh lebih ringan.
 
 ## Struktur Direktori
 
@@ -96,9 +100,11 @@ pip install -r requirements.txt
 ### Penarikan Data
 
 ```bash
-python src/ingest_data.py --backfill        # tarikan awal sejak September 2024
-python src/ingest_data.py --hanya harga     # pembaruan harga jika akses diizinkan
-python src/ingest_data.py --hanya cuaca     # batasi pada satu sumber
+python src/ingest_data.py --backfill                     # tarikan awal sejak September 2024
+python src/ingest_data.py --hanya harga                  # pembaruan harian, tiga hari ke belakang
+python src/ingest_data.py --hanya cuaca                  # pembaruan cuaca sentra produksi
+python src/ingest_data.py --hanya harga --sejak 2026-10-15   # mengejar tanggal yang terlewat
+python src/ingest_data.py --hanya harga --kota Malang    # batasi cakupan kota atau komoditas
 ```
 
 Setiap eksekusi menulis berkas baru bernama `<sumber>_<stempel waktu>.csv` ke `data/raw/`, misalnya
@@ -150,16 +156,95 @@ Penamaan branch mengikuti pola `<tipe>/<ringkasan>` dengan tipe `feat`, `fix`, `
 `chore`. Pesan commit mengikuti konvensi *Conventional Commits*. Branch dihapus setelah *pull
 request* digabungkan.
 
+## Versioning Dataset dengan DVC
+
+### Mengapa Dataset Perlu Diberi Versi
+
+Model peramalan pada proyek ini merupakan hasil dari tiga masukan sekaligus, yaitu kode, konfigurasi,
+dan data. Git sudah mencatat dua masukan pertama. Namun, dataset bertambah setiap hari kerja dan harga
+lama dapat direvisi oleh sumber, sehingga dataset yang dipakai melatih model hari ini tidak akan sama
+dengan dataset satu bulan kemudian. Tanpa versi data, metrik pada MLflow tidak dapat diulang, karena
+tidak ada cara untuk memperoleh kembali baris yang benar-benar digunakan saat pelatihan.
+
+DVC menyimpan berkas data pada remote dan hanya menitipkan berkas penunjuk `.dvc` berisi hash md5 ke
+Git. Satu commit Git dengan demikian mengikat versi kode dan versi data secara bersamaan. Ketika model
+perlu diaudit atau penurunan performa perlu ditelusuri, commit tersebut cukup dipulihkan dan `dvc pull`
+mengembalikan data yang identik hingga tingkat byte. Pemisahan tersebut juga menjaga ukuran repositori
+Git tetap kecil, karena arsip CSV dan Parquet tidak masuk ke riwayat Git.
+
+### Riwayat Versi
+
+| Versi | Commit | Isi | Baris olahan | Berkas mentah |
+| --- | --- | --- | ---: | ---: |
+| 1 | `67a4f8d` | Backfill 2 September 2024 sampai 14 Oktober 2026 | 13.825 | 2 |
+| 2 | `a948b7f` | Tarikan ulang cabai rawit merah Malang, 12 sampai 14 Oktober | 13.825 | 3 |
+| 3 | `c3d83c3` | Lima komoditas Malang, 15 sampai 19 Oktober | 13.840 | 4 |
+
+Versi 2 menambah tiga baris mentah, tetapi ketiga tanggalnya sudah tercakup pada versi 1. Prapemrosesan
+memilih tarikan terbaru untuk setiap kunci, sehingga yang berubah hanya kolom `ditarik_pada`. Versi 3
+menambah 15 observasi unik pada tanggal yang belum pernah tercatat. Perbedaan kedua versi tersebut
+menunjukkan bahwa pertambahan berkas mentah belum tentu berarti pertambahan observasi.
+
+### Alur Menambah Versi
+
+```bash
+python src/ingest_data.py --hanya harga --kota Malang --sejak 2026-10-15
+python src/preprocess.py
+python -m dvc status                     # DVC mendeteksi perubahan isi direktori
+python -m dvc add data/raw data/processed
+python -m dvc diff                       # bandingkan dengan versi pada HEAD
+git add data/raw.dvc data/processed.dvc
+git commit -m "data: ringkasan isi versi baru"
+python -m dvc push
+```
+
+Untuk memulihkan versi lama, pilih commit yang sesuai lalu ambil datanya:
+
+```bash
+git checkout a948b7f -- data/raw.dvc data/processed.dvc
+python -m dvc checkout
+```
+
+Remote `lokal` menunjuk direktori `../.dvc-storage` pada komputer pengembang. Pada Codespaces atau
+komputer lain, remote tersebut perlu diganti dengan penyimpanan bersama seperti S3 atau MinIO melalui
+`dvc remote add -d`.
+
+## Eksperimen dan Model Registry
+
+`src/train.py` membentuk fitur per pasangan kota dan komoditas, lalu melatih LightGBM untuk meramalkan
+perubahan harga relatif. Parameter, metrik, hash dataset, hash kode, dan artefak model dicatat ke MLflow
+pada setiap eksekusi. Horizon 7 berarti tujuh observasi hari kerja. Baris latih yang tanggal targetnya
+jatuh pada periode uji dikeluarkan agar label uji tidak bocor ke data latih.
+
+```bash
+python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_baseline --n-estimators 300 --learning-rate 0.05 --num-leaves 31
+python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_dangkal_teregul --n-estimators 150 --learning-rate 0.03 --max-depth 4 --num-leaves 15
+python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_dalam_agresif --n-estimators 800 --learning-rate 0.1 --num-leaves 63
+python -m mlflow ui --backend-store-uri ./mlruns --host 127.0.0.1 --port 5000
+```
+
+| Konfigurasi | RMSE (Rp) | MAPE (%) |
+| --- | ---: | ---: |
+| Baseline | 5.645,60 | 6,06 |
+| Dangkal teratur | 5.403,15 | 5,75 |
+| Dalam agresif | 6.169,38 | 6,70 |
+| Naive | 5.214,42 | 5,37 |
+
+Konfigurasi dangkal teratur menghasilkan galat terendah di antara tiga LightGBM dan terdaftar pada
+Model Registry sebagai `PanganWatch-Harga-Kandidat` versi 1. Ketiga konfigurasi masih kalah dari
+model naive, sehingga kandidat tersebut belum dipromosikan ke tahap produksi. Eksperimen ini memakai
+dataset versi 2; hash dataset pada setiap run memastikan perbandingan dilakukan pada data yang sama.
+
 ## Peta Lembar Kerja
 
 | LK | Cakupan | Status |
 | --- | --- | --- |
 | LK-01 | Inisiasi proyek, strategi *continual learning*, kriteria keberhasilan | Selesai |
 | LK-02 | Repositori, Codespaces, struktur direktori, GitHub Flow | Selesai |
-| LK-03 | Perancangan arsitektur pipeline data | Laporan lokal selesai |
-| LK-04 | Implementasi *data ingestion* dan prapemrosesan | Kode, data, dan laporan lokal selesai |
-| LK-05 | Versioning dataset menggunakan DVC | Dua versi dan laporan lokal selesai |
-| LK-06 | Manajemen eksperimen menggunakan MLflow | Tiga run, registry kandidat, dan laporan lokal selesai |
+| LK-03 | Perancangan arsitektur pipeline data | Selesai |
+| LK-04 | Implementasi *data ingestion* dan prapemrosesan | Selesai |
+| LK-05 | Versioning dataset menggunakan DVC | Selesai |
+| LK-06 | Manajemen eksperimen menggunakan MLflow | Selesai |
 
 ## Lisensi
 
@@ -167,54 +252,3 @@ Berlisensi MIT. Rincian pada berkas [LICENSE](LICENSE).
 
 Data harga berasal dari Pusat Informasi Harga Pangan Strategis Bank Indonesia. Data cuaca berasal
 dari Open-Meteo dan tunduk pada lisensi Creative Commons Attribution 4.0 International.
-
-
-## Versioning Dataset dengan DVC
-
-Dataset hasil LK-04 dilacak melalui `data/raw.dvc` dan `data/processed.dvc`.
-Commit `67a4f8d` mencatat versi pertama, sedangkan `a948b7f` menambahkan snapshot harga tiga baris.
-Jumlah raw berubah dari dua menjadi tiga berkas. Tiga kunci sudah ada dalam arsip sehingga jumlah
-observasi unik olahan tetap 13.825; perubahan waktu pengambilan tidak sama dengan harga baru.
-
-```powershell
-python -m dvc status
-python -m dvc diff 67a4f8d a948b7f
-```
-
-Untuk snapshot baru yang sudah diperiksa, jalankan prapemrosesan lalu `python -m dvc add data/raw data/processed`.
-Simpan penunjuk `.dvc` bersama versi kode setelah validasi. `dvc diff` membandingkan metadata berkas,
-sehingga perubahan isi tabel perlu diperiksa terpisah. Jangan ulangi ingesti hanya untuk memeriksa tugas.
-
-Remote `lokal` menunjuk penyimpanan lokal dan tidak tersedia otomatis di Codespaces lain.
-Paket LK-05 menyertakan data, cache, dan Git bundle untuk reproduksi tanpa akses sumber data.
-
-## Eksperimen dan Model Registry LK-06
-
-`src/train.py` membentuk fitur per kota dan komoditas dari dataset harga LK-05.
-Horizon 7 berarti tujuh observasi hari kerja. Tanggal target latih harus tidak melewati
-batas periode latih; baris yang labelnya masuk periode uji dikeluarkan.
-Parameter, metrik, hash dataset/kode, batas waktu, dan artefak model dicatat melalui MLflow.
-Cuaca belum menjadi fitur. Evaluasi historis memakai snapshot terbaru dan belum membuktikan
-semua revisi harga tersedia pada tanggal prediksi aslinya.
-
-```powershell
-python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_baseline --n-estimators 300 --learning-rate 0.05 --num-leaves 31
-python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_dangkal_teregul --n-estimators 150 --learning-rate 0.03 --max-depth 4 --num-leaves 15
-python src/train.py --experiment panganwatch-lk06-terverifikasi --run-name lk06_dalam_agresif --n-estimators 800 --learning-rate 0.1 --num-leaves 63
-python -m mlflow ui --backend-store-uri ./mlruns --host 127.0.0.1 --port 5000
-```
-
-Tiga run terverifikasi tersimpan pada eksperimen `panganwatch-lk06-terverifikasi`.
-Konfigurasi dangkal memiliki MAPE 5,7548 persen dan RMSE Rp5.403,15,
-sedangkan naive memiliki MAPE 5,3746 persen dan RMSE Rp5.214,42.
-Model terbaik di antara tiga LightGBM terdaftar sebagai `PanganWatch-Harga-Kandidat`, versi 1,
-stage None. Kandidat belum mengungguli naive dan tidak dipromosikan ke produksi.
-Pemilihan pada jendela uji yang sama bersifat eksploratif; evaluasi berikutnya membutuhkan
-periode terpisah. Model tersimpan berhasil dimuat ulang dengan 1.050 prediksi identik.
-
-## Pemeriksaan Paket Lokal
-
-Seluruh 20 pengujian ingesti, prapemrosesan, dan pelatihan lulus. Kompilasi sintaks dan
-`git diff --check` lulus. Ruff 0.17.0 sudah dijalankan; lint dan pemeriksaan format lulus.
-Tidak ada permintaan baru ke PIHPS atau Open-Meteo pada penyelesaian LK-03 sampai LK-06.
-Perubahan sesi ini masih lokal dan belum di-commit/push.
