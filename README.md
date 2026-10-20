@@ -39,12 +39,9 @@ data olahan, kode sumber, dan artefak model tetap tegas.
 MLOps-PanganWatch/
 ├── .devcontainer/
 │   └── devcontainer.json     definisi lingkungan Codespaces
-├── .github/
-│   └── workflows/            workflow GitHub Actions
 ├── config/                   berkas konfigurasi sumber data dan parameter
 ├── data/
 │   ├── raw/                  hasil tarikan mentah, tidak pernah disunting
-│   ├── interim/              hasil antara proses pembersihan
 │   └── processed/            tabel fitur siap latih
 ├── docs/                     dokumentasi teknis dan diagram arsitektur
 ├── models/                   artefak model terlatih
@@ -52,7 +49,8 @@ MLOps-PanganWatch/
 ├── src/
 │   ├── ingest_data.py        penarikan snapshot
 │   ├── preprocess.py         validasi tabel harga
-│   └── sources.py            klien sumber data
+│   ├── sources.py            klien sumber data
+│   └── train.py              pelatihan dan pencatatan MLflow
 ├── tests/                    pengujian otomatis
 ├── .gitignore
 ├── LICENSE
@@ -96,6 +94,8 @@ pip install -r requirements.txt
 ```
 
 ## Menjalankan Pipeline Data
+
+![Arsitektur pipeline data PanganWatch](docs/arsitektur-pipeline.png)
 
 ### Penarikan Data
 
@@ -229,6 +229,8 @@ python -m mlflow ui --backend-store-uri ./mlruns --host 127.0.0.1 --port 5000
 | Dangkal teratur | 5.403,15 | 5,75 |
 | Dalam agresif | 6.169,38 | 6,70 |
 | Naive | 5.214,42 | 5,37 |
+
+![Perbandingan metrik tiga konfigurasi](docs/perbandingan-metrik.png)
 
 Konfigurasi dangkal teratur menghasilkan galat terendah di antara tiga LightGBM dan terdaftar pada
 Model Registry sebagai `PanganWatch-Harga-Kandidat` versi 1. Ketiga konfigurasi masih kalah dari
